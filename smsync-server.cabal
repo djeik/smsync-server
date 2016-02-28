@@ -25,4 +25,6 @@ executable smsync-server
     base >=4.8 && <4.9,
     network >=2.6 && <2.7,
     bytestring >=0.10 && <0.11,
-    attoparsec >=0.13 && <0.14
+    attoparsec >=0.13 && <0.14,
+    time >=1.5 && <1.6,
+    containers >=0.5 && <0.6
