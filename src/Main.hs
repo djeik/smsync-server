@@ -23,58 +23,6 @@ import System.IO
 import System.IO.Unsafe ( unsafePerformIO )
 import Text.Read ( readMaybe )
 
-data HandlerRequest
-    = TerminateHandler
-    deriving (Eq, Ord, Read, Show)
-
-data HandlerResponse
-    = HandlerOK
-    deriving (Eq, Ord, Read, Show)
-
-data HandlerStateLabel
-    = PreHello
-    | PreAuth
-    | InHeader
-    | InBody
-    deriving (Eq, Ord, Read, Show)
-
-data Header
-    = HeaderFrom !BS.ByteString !(Maybe BS.ByteString)
-    | HeaderTo !BS.ByteString !(Maybe BS.ByteString)
-    | HeaderTime !T.UTCTime
-    | HeaderId !Int
-    | HeaderLength !Int
-    deriving (Eq, Ord, Read, Show)
-
-data MessageHeader a
-    = MessageHeader
-        { headerFrom :: !(BS.ByteString, (Maybe BS.ByteString))
-        , headerTo :: !(BS.ByteString, (Maybe BS.ByteString))
-        , headerTime :: !T.UTCTime
-        , headerId :: !Int
-        , headerLength :: !Int
-        }
-    deriving (Eq, Ord, Read, Show)
-
-type HeaderMap
-    = Map.Map Header BS.ByteString
-
-data HandlerState
-    = HandlerState
-        { stLabel :: HandlerStateLabel
-        , stHeaders :: HeaderMap
-        , stBody :: BS.ByteString
-        }
-
-data PhoneInfo
-    = PhoneInfo
-        { phoneNumber :: !BS.ByteString
-        , phoneOwner :: !BS.ByteString
-        }
-
-type PhoneMap
-    = Map.Map BS.ByteString PhoneInfo
-
 main :: IO ()
 main = do
     serverSocket <- socket AF_INET Stream defaultProtocol
