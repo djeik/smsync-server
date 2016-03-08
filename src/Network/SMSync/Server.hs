@@ -1,8 +1,10 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 
-module Main where
+module Network.SMSync.Server where
+
+import Network.SMSync.Types
+import Network.SMSync.Parser
 
 import Control.Concurrent ( forkIO )
 import Control.Concurrent.Chan
@@ -23,69 +25,34 @@ import System.IO
 import System.IO.Unsafe ( unsafePerformIO )
 import Text.Read ( readMaybe )
 
-data HandlerRequest
-    = TerminateHandler
-    deriving (Eq, Ord, Read, Show)
-
-data HandlerResponse
-    = HandlerOK
-    deriving (Eq, Ord, Read, Show)
-
-data HandlerStateLabel
-    = PreHello
-    | PreAuth
-    | InHeader
-    | InBody
-    deriving (Eq, Ord, Read, Show)
-
-data Header
-    = HeaderFrom !BS.ByteString !(Maybe BS.ByteString)
-    | HeaderTo !BS.ByteString !(Maybe BS.ByteString)
-    | HeaderTime !T.UTCTime
-    | HeaderId !Int
-    | HeaderLength !Int
-    deriving (Eq, Ord, Read, Show)
-
-data MessageHeader a
-    = MessageHeader
-        { headerFrom :: !(BS.ByteString, (Maybe BS.ByteString))
-        , headerTo :: !(BS.ByteString, (Maybe BS.ByteString))
-        , headerTime :: !T.UTCTime
-        , headerId :: !Int
-        , headerLength :: !Int
-        }
-    deriving (Eq, Ord, Read, Show)
-
-type HeaderMap
-    = Map.Map Header BS.ByteString
-
-data HandlerState
-    = HandlerState
-        { stLabel :: HandlerStateLabel
-        , stHeaders :: HeaderMap
-        , stBody :: BS.ByteString
+data ServerSettings
+    = ServerSettings
+        { serverBindHost :: String
+        , serverBindPort :: PortNumber
         }
 
-data PhoneInfo
-    = PhoneInfo
-        { phoneNumber :: !BS.ByteString
-        , phoneOwner :: !BS.ByteString
+defaultSettings :: ServerSettings
+defaultSettings
+    = ServerSettings
+        { serverBindHost = "0.0.0.0"
+        , serverBindPort = 7777
         }
 
-type PhoneMap
-    = Map.Map BS.ByteString PhoneInfo
+run :: IO ()
+run = runWithSettings defaultSettings
 
-main :: IO ()
-main = do
+runWithSettings :: ServerSettings -> IO ()
+runWithSettings settings = do
     serverSocket <- socket AF_INET Stream defaultProtocol
-    bind serverSocket . SockAddrInet 7777 =<< inet_addr "0.0.0.0"
+    addr <- inet_addr (serverBindHost settings)
+    bind serverSocket $ SockAddrInet (serverBindPort settings) addr
     listen serverSocket 5
     clientMap <- newMVar $
         Map.fromList
             [ ( "XXX"
               , PhoneInfo
                 { phoneNumber = "5145033100"
-                , phoneOwner = "Jake"
+                , phoneOwner = Just "Jake"
                 }
               )
             ]
@@ -101,12 +68,6 @@ main = do
 
 handleConnection :: Handle -> MVar PhoneMap -> IO ()
 handleConnection h mpm = forever $ preHello h mpm
-
-echoIn :: BS.ByteString -> IO ()
-echoIn b = C8.putStr "< " *> C8.putStrLn b
-
-echoOut :: BS.ByteString -> IO ()
-echoOut b = C8.putStr "> " *> C8.putStrLn b
 
 preHello :: Handle -> MVar PhoneMap -> IO ()
 preHello h mpm = do
@@ -146,16 +107,35 @@ preAuth h mpm = do
                     sPutStrLn "Hello"
                     inHeader h phoneInfo
 
+inputBlank :: Protocol a ProtocolError ()
+inputBlank = do
+    line <- inputLine
+    if BS.length line == 0
+        then pure ()
+        else die NonemptyLine
+
+upload :: Protocol a ProtocolError ()
+upload = do
+    line <- inputLine
+    case () of
+        _ | line == "Upload" -> do
+            env <- uploadHeader
+            body <- input (headerLength env)
+            undefined
+        _ | line == "End" -> pure ()
+        _ -> die UnexpectedInput
+
+uploadHeader :: Protocol a ProtocolError MessageEnvelope
+uploadHeader = do
+    line <- inputLine
+    undefined
+    
 inHeader :: Handle -> PhoneInfo -> IO ()
 inHeader h phone = do
     let sPutStrLn l = C8.hPutStrLn h l *> echoOut l
     let sGetLine = C8.hGetLine h >>= \l -> echoIn l *> pure (l <> "\n")
 
-    -- putStrLn "Beginning header loop"
-
     mhds <- headerLoop h
-
-    -- putStrLn "Completed header loop"
 
     case mhds of
         Nothing -> do
@@ -163,11 +143,11 @@ inHeader h phone = do
 
         Just hds -> do
             let q x = if x == "me" then phoneNumber phone else x
-            let pickLength = \case HeaderLength x -> Just x        ; _ -> Nothing
-            let pickTime   = \case HeaderTime x   -> Just x        ; _ -> Nothing
-            let pickFrom   = \case HeaderFrom x y -> Just (q x, y) ; _ -> Nothing
-            let pickTo     = \case HeaderTo x y   -> Just (q x, y) ; _ -> Nothing
-            let pickId     = \case HeaderId x     -> Just x        ; _ -> Nothing
+            let pickLength = \case HeaderLength x -> Just x ; _ -> Nothing
+            let pickTime   = \case HeaderTime x   -> Just x ; _ -> Nothing
+            let pickFrom   = \case HeaderFrom p   -> Just p ; _ -> Nothing
+            let pickTo     = \case HeaderTo p     -> Just p ; _ -> Nothing
+            let pickId     = \case HeaderId x     -> Just x ; _ -> Nothing
             let get f      = listToMaybe . catMaybes . map f $ hds
 
             case (,,,,) <$> get pickLength <*> get pickTime <*> get pickFrom <*> get pickTo <*> get pickId of
@@ -175,7 +155,7 @@ inHeader h phone = do
                     -- putStrLn "Missing headers."
                     sPutStrLn "Bye"
                 Just (len, time, from, to, id) -> do
-                    let fhd = MessageHeader from to time id len
+                    let fhd = MessageEnvelope from to time id len
                     sPutStrLn "GoAhead"
                     b <- C8.hGet h len
                     echoIn b
@@ -212,60 +192,12 @@ headerLoop h = do
                 hds <- headerLoop h
                 pure $ (:) <$> pure hd <*> hds
 
-greeting :: Parser ()
-greeting = string "SMS\n" *> pure ()
-
-auth :: Parser BS.ByteString
-auth = do
-    string "Key "
-    k <- takeTill (== fromIntegral (fromEnum '\n'))
-    string "\n"
-    pure k
-
-fie :: Char -> Word8
-fie = fromIntegral . fromEnum
-
-header :: Parser (Maybe Header)
-header = choice [from, to, time, id, len, blank] where
-    from = fmap pure $ do
-        string "From "
-        HeaderFrom
-            <$> takeTill (\x -> x == fie ' ' || x == fie '\n')
-            <*> choice
-                [ string " " *> fmap Just (takeTill (== fie '\n') <* string "\n")
-                , string "\n" *> pure Nothing
-                ]
-    to = fmap pure $ do
-        string "To "
-        HeaderTo
-            <$> takeTill (\x -> x == fie ' ' || x == fie '\n')
-            <*> choice
-                [ string " " *> fmap Just (takeTill (== fie '\n') <* string "\n")
-                , string "\n" *> pure Nothing
-                ]
-    time = fmap pure $ do
-        string "Time "
-        _ <- takeByteString
-        pure $ HeaderTime now
-
-    id = fmap pure $ do
-        string "Id "
-        mn <- readMaybe . C8.unpack <$> takeTill (== fie '\n')
-        string "\n"
-        case mn of
-            Nothing -> fail "integer message id"
-            Just n -> pure $ HeaderId n
-
-    len = fmap pure $ do
-        string "Length "
-        mn <- readMaybe . C8.unpack <$> takeTill (== fie '\n')
-        string "\n"
-        case mn of
-            Nothing -> fail "integer length"
-            Just n -> pure $ HeaderLength n
-
-    blank = string "\n" *> pure Nothing
-
 now :: T.UTCTime
 now = unsafePerformIO T.getCurrentTime
 {-# NOINLINE now #-}
+
+echoIn :: BS.ByteString -> IO ()
+echoIn b = C8.putStr "< " *> C8.putStrLn b
+
+echoOut :: BS.ByteString -> IO ()
+echoOut b = C8.putStr "> " *> C8.putStrLn b

@@ -79,10 +79,10 @@ The client and server can now negociate what to do. The client selects a mode
 with a message of the form `Mode XXX` where `XXX` is in fact the mode to
 select. The following modes are supported.
 
-* `Upload`: the server transitions to the `Upload` state, for receiving SMS from the phone.
-* `Confirm`: the server transitions to `Confirm` state, in which a phone
-  can send confirmations to the server that synthetic messages were
-  dispatched.
+* `Upload`: the server transitions to the `Upload` state, for receiving SMS
+  from the phone.
+* `Confirm`: the server transitions to `Confirm` state, in which a phone can
+  send confirmations to the server that synthetic messages were dispatched.
 * `Download`: the server transitions to `Download` state, in which the server
   can use the connection to submit messages to a device.
 
