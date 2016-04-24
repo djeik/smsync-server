@@ -1,4 +1,10 @@
+{-# LANGUAGE GADTs #-}
+
 module Network.SMSync.Types where
+
+import qualified Data.ByteString as BS
+import qualified Data.Map as Map
+import qualified Data.Time as T
 
 -- | Represents a message to be uploaded to a device.
 data MessageUpload
@@ -50,22 +56,55 @@ data MessageOrigin
     -- ^ The message originated from an SMS-enabled device.
     | SyntheticOrigin
     -- ^ The message originated from a non-SMS-enabled device.
-
--- | The different kinds of headers that can be used in message uploads.
-data Header
-    = HeaderFrom !PhoneInfo
-    | HeaderTo !PhoneInfo
-    | HeaderTime !T.UTCTime
-    | HeaderId !Int
-    | HeaderLength !Int
     deriving (Eq, Ord, Read, Show)
 
-type PhoneMap
-    = Map.Map BS.ByteString PhoneInfo
+-- | The different kinds of headers that can be used in message uploads.
+data UploadHeader
+    = ULHeaderFrom !HeaderFrom
+    | ULHeaderTo !HeaderTo
+    | ULHeaderTime !HeaderTime
+    | ULHeaderId !HeaderId
+    | ULHeaderLength !HeaderLength
+    deriving (Eq, Ord, Read, Show)
 
+-- | A header indicating the sender of a message.
+data HeaderFrom = HeaderFrom !PhoneInfo
+    deriving (Eq, Ord, Read, Show)
+
+-- | A header indicating the recipient of a message.
+data HeaderTo = HeaderTo !PhoneInfo
+    deriving (Eq, Ord, Read, Show)
+
+-- | A header indicating the time of a message.
+data HeaderTime = HeaderTime !T.UTCTime
+    deriving (Eq, Ord, Read, Show)
+
+-- | A header indicating a unique identifier for a message.
+data HeaderId = HeaderId !ClientMessageId
+    deriving (Eq, Ord, Read, Show)
+
+-- | A header indicating the length of a message.
+data HeaderLength = HeaderLength !Int
+    deriving (Eq, Ord, Read, Show)
+
+-- | A header indicating the origin of a message.
+data HeaderOrigin = HeaderOrigin !MessageOrigin
+    deriving (Eq, Ord, Read, Show)
+
+-- | An auth token acts as a password for an account.
+type AuthToken = BS.ByteString
+
+type ClientMessageId = Int
+type ServerMessageId = Int
+
+-- | Maps auth tokens to their associated account's information.
+type PhoneMap
+    = Map.Map AuthToken PhoneInfo
+
+-- | Information about a phone.
 data PhoneInfo
     = PhoneInfo
         { phoneNumber :: !BS.ByteString
         , phoneOwner :: !(Maybe BS.ByteString)
         }
-
+    deriving (Eq, Ord, Read, Show)
